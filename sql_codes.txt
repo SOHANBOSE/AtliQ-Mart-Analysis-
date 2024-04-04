@@ -1,0 +1,111 @@
+request1:
+provide a list of products with a base price greater than 500 and that are featured in promo type of 'BOGOF' (Buy One Get One Free).
+This information will help us identify high-value products that are currently being heavily discounted, which can be useful for evaluating our pricing and promotion strategies.
+
+
+SELECT 
+	distinct f.product_code,
+    p.product_name,
+    f.base_price,
+    f.promo_type
+FROM fact_events f Join
+	 dim_products p on
+     f.product_code = p.product_code
+where 
+	base_price > 500 and
+	promo_type = 'BOGOF'
+;
+
+request2:
+Generate a report that provides an overview of the number of stores in each city. the results will be sorted in descending order of store counts,
+allowing us to identify the cities with the highest store presence. the report includes two essential fields: city and store count, 
+which will assist in optimizing our retail operations.
+
+SELECT 
+	city,
+    count(store_id) as store_count
+FROM dim_stores
+group by city
+order by store_count desc;
+
+request3:
+generate a report that displays each campaign along with the total revenue generated before and after the campaign?
+The report includes three key fields: campaign_name, total_revenue(before_promotion), total_revenue(after_promotion).
+This report should help in evaluating the financial impact of our promotional campaigns. (Display the values in millions)
+
+with cte as
+(SELECT 
+	*,
+	ROUND
+    (CASE
+		WHEN promo_type = '50% OFF' THEN base_price * 0.5
+        WHEN promo_type = '25% OFF' THEN base_price * 0.75
+        WHEN promo_type = 'BOGOF' THEN base_price / 2
+        WHEN promo_type = '500 Cashback' THEN base_price - 500
+        WHEN promo_type = '33% OFF' THEN base_price * 0.67
+    END, 2 )
+    AS discounted_price
+FROM fact_events)
+select 
+	c.campaign_name,
+    ROUND(SUM(cte.base_price*cte.quantity_sold_before_promo)/1000000,2) as total_revenue_before_promotion,
+    ROUND(SUM(cte.discounted_price*cte.quantity_sold_after_promo)/1000000,2) as total_revenue_after_promotion
+from cte JOIN
+	dim_campaigns c ON
+cte.campaign_id = c.campaign_id
+group by campaign_name;
+
+request4:
+produce a report that calculates the incremental Sold Quantity (ISU) for each category during the diwali campaign.
+additionally, provide rankings for the categories based on their ISU%. the report will include three key fields:
+category,isu% and rank order. This information will assist in assessing the category-wise success and impact of the diwali campaignon incremental sales.
+NOTE: ISU% (incremental sold quantity percentage) is calculated as the percentage increase/decrease in quantity sold (after-promo) compared to quantity sold(before_promo)
+
+with cte as (
+SELECT 
+	p.category,
+    ROUND((SUM(f.quantity_sold_after_promo) - SUM(f.quantity_sold_before_promo))/SUM(f.quantity_sold_before_promo)*100,2) as ISU_percentage
+FROM fact_events f JOIN
+	 dim_products p
+ON f.product_code = p.product_code
+JOIN dim_campaigns c 
+ON f.campaign_id = c.campaign_id
+where c.campaign_name = 'Diwali'
+group by p.category
+)
+select 
+	category,
+    ISU_percentage,
+    rank() OVER (order by ISU_percentage DESC) as rank_order
+from cte
+order by rank_order;
+
+
+request5:
+create a report featuring the top 5 products, ranked by incremental revenue percentage (IR%), across all campaigns. the report will provide essential information including
+product_name,category, and ir%. this analysis helps identify the most successful products in terms of incremental revenue across our campaigns, assisting in product optimization.
+
+with cte as
+(SELECT 
+	*,
+	ROUND
+    (CASE
+		WHEN promo_type = '50% OFF' THEN base_price * 0.5
+        WHEN promo_type = '25% OFF' THEN base_price * 0.75
+        WHEN promo_type = 'BOGOF' THEN base_price / 2
+        WHEN promo_type = '500 Cashback' THEN base_price - 500
+        WHEN promo_type = '33% OFF' THEN base_price * 0.67
+    END, 2 )
+    AS discounted_price
+FROM fact_events)
+select 
+	p.product_name,
+    p.category,
+    ROUND(((SUM(cte.discounted_price*cte.quantity_sold_after_promo)-SUM(cte.base_price*cte.quantity_sold_before_promo))/SUM(cte.base_price*cte.quantity_sold_before_promo))*100,2) as IR_percentage
+from cte JOIN
+	dim_products p ON
+cte.product_code = p.product_code
+group by product_name, category
+order by IR_percentage desc
+limit 5;
+
